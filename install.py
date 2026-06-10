@@ -12,8 +12,8 @@ Works on two kinds of targets:
 What it does:
   * backs up RSBE01.TXT and RSBE01.GCT (.randsub-backup, first run only)
   * copies RANDSUB.ASM into Source/Community/
-  * patches RSBE01.TXT: disables the old "Melee Random v2" code and includes
-    RANDSUB.ASM (idempotent -- safe to run again after a P+ update)
+  * patches RSBE01.TXT: adds one .include line for RANDSUB.ASM
+    (idempotent -- safe to run again after a P+ update)
   * rebuilds RSBE01.GCT with the GCTRealMate.exe that ships in the build
   * verifies the mod's hooks are present in the rebuilt GCT
 
@@ -35,10 +35,7 @@ HERE = Path(__file__).resolve().parent
 ASM_NAME = "RANDSUB.ASM"
 INCLUDE_LINE = ".include Source/Community/RANDSUB.ASM"
 ANCHOR_INCLUDE = ".include Source/LegacyTE/CSSCustomControls.asm"
-BLOCK_HEADER = "Melee Random v2"
-BLOCK_LAST_HEX = "7FA3EB78"
-HOOK_SIGS = ["C26898E8", "C268AE24", "C2685824", "C268B818",
-             "C268B828", "C26892C4", "C26892C8"]
+HOOK_SIGS = ["C26898E8", "C2685824", "C268B818", "C26892C4"]
 BACKUP_SUFFIX = ".randsub-backup"
 
 
@@ -50,38 +47,15 @@ def find_asm() -> Path:
 
 
 def patch_txt(text: str) -> str:
-    """Disable Melee Random v2 and include RANDSUB.ASM. Idempotent."""
+    """Add the RANDSUB include to RSBE01.TXT. Idempotent."""
     if INCLUDE_LINE in text:
         print("  RSBE01.TXT already patched -- leaving as is")
         return text
-    lines = text.splitlines()
-    out, in_block, done_block, included = [], False, False, False
-    for line in lines:
-        stripped = line.strip()
-        if not done_block and BLOCK_HEADER in line:
-            in_block = True
-        if in_block:
-            if stripped.startswith("*") or stripped.startswith("#") \
-                    or BLOCK_HEADER in line or not stripped:
-                out.append("#" + line if stripped and not stripped.startswith("#") else line)
-                if stripped.startswith("*") and BLOCK_LAST_HEX in line:
-                    in_block, done_block = False, True
-                    out.append("# ^ Melee Random v2 disabled by Per-Port Random Subset")
-                continue
-            in_block, done_block = False, True
-        if ANCHOR_INCLUDE in line and not included:
-            out.append(line)
-            out.append("")
-            out.append(INCLUDE_LINE)
-            included = True
-            continue
-        out.append(line)
-    if not included:
+    if ANCHOR_INCLUDE not in text:
         sys.exit("error: could not find the CSSCustomControls include in "
                  "RSBE01.TXT -- is this a Project+ 3.x build?")
-    if not done_block:
-        print("  warning: Melee Random v2 block not found (already removed?)")
-    return "\n".join(out) + "\n"
+    return text.replace(ANCHOR_INCLUDE,
+                        ANCHOR_INCLUDE + "\n\n" + INCLUDE_LINE, 1)
 
 
 def run_gctrm(build: Path) -> None:

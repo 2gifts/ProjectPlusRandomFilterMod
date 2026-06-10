@@ -4,14 +4,21 @@
 # Each controller port builds its own random-character LIST on the CSS:
 #   * Hover a character tile and TAP L  -> add/remove it from YOUR list
 #     (menu SFX confirms: "enter" = added, "exit" = removed)
-#   * Hover the RANDOM tile and TAP L   -> clear YOUR list (back to everyone)
-#   * Drop your coin on RANDOM          -> a character is rolled from your list
-#     right then (empty list = full roster, vanilla behavior); pick the coin
-#     back up and re-drop to re-roll
+#   * Hover the RANDOM tile (coin in hand) and TAP L -> clear YOUR list
+#   * Drop your coin on RANDOM          -> mystery: the panel keeps showing
+#     '?' and the match rolls fresh from your list when it loads; leave the
+#     coin there and every following match re-rolls
+#   * The game's own instant random (dropping the coin at the screen edge)
+#     also rolls from your list, because it consumes the same hidden
+#     per-port pre-roll this mod keeps refreshed
 #
 # Lists live in scratch RAM (persist across matches, reset on power off).
-# Replaces "[Legacy TE] Melee Random v2" (vestigial in P+; removed from the
-# codeset).
+# Empty list = vanilla random over the full roster.
+#
+# Coexists with the stock codeset untouched: "[Legacy TE] Melee Random v2"
+# hooks 0x8068AE24, a decide-path branch that never executes on P+'s CSS
+# (random placements carry slot 0x29, the code only acts on 0x28), so no
+# patch sites are shared.
 #
 # Targets Project+ (RSBE01). Key facts (verified live against P+ 3.1.5):
 #   - sora_menu_sel_char.rel loads at 0x80682800
@@ -48,11 +55,9 @@
 .alias setFranchiseIcon    = 0x800B7900   # (obj+0xB8 thing, f1)
 .alias setStockCharKind    = 0x80692498
 .alias PrevPadBase         = 0x80002920   # 4 words: per-port previous buttons
-.alias DropChoice          = 0x80002930   # slot chosen by the drop-time roll
 .alias PreRollOff          = 0x410        # player object: deferred-random char
 
-.alias ToggleButton  = 0x0040       # L: list add/remove + clear (on '?')
-.alias InstantButton = 0x0010       # Z: held during a '?' drop = instant roll
+.alias ToggleButton  = 0x0040       # GC L button: all list controls
 # getSysPadStatus output: shipped P+ code (Random.asm RSS) reads buttons at buf+4
 .alias SFX_On        = 0x26         # menu "enter"
 .alias SFX_Off       = 0x28         # menu "exit"
@@ -267,160 +272,6 @@ TogOut:
 }
 
 ################################################################
-# Hook 2: per-port random roll. Replaces Melee Random v2.
-# At 0x8068AE24 (original op: mr r3, r29): r27 = slot kind being
-# placed (0x28 = Random), r28 = player object, r31 = manager.
-# The vanilla "skip if random" beq at 0x8068AE20 stays NOPed.
-################################################################
-op nop @ $8068AE20
-
-HOOK @ $8068AE24
-{
-    cmpwi r27, 0x28
-    bne- TheEnd
-    stwu r1, -0x40(r1)
-    mflr r0
-    stw r0, 0x44(r1)
-
-    # one-time pool init (all characters enabled)
-    %lwi(r11, MagicAddr)
-    lwz r12, 0(r11)
-    %lwi(r10, MagicVal)
-    cmpw r12, r10
-    beq+ RollInited
-    stw r10, 0(r11)
-    %lwi(r9, PoolBase)
-    li r8, PoolTotal
-    li r7, 0                     # empty list = no restriction
-RollInitLoop:
-    subic. r8, r8, 1
-    stbx r7, r9, r8
-    bne+ RollInitLoop
-RollInited:
-
-    # which port is rolling? (player object stores it at +0x1B0)
-    lwz r5, 0x1B0(r28)
-    cmplwi r5, 3
-    ble+ RollPortOk
-    li r5, 0                     # out of range: behave like P1
-RollPortOk:
-    mulli r6, r5, PoolStride
-    %lwi(r7, PoolBase)
-    add r7, r7, r6
-    stw r7, 0x28(r1)             # pool for this port
-
-    %lwi(r8, RandCountAddr)
-    lhz r8, 0(r8)
-    stw r8, 0x2C(r1)             # table size
-
-    # count enabled entries
-    li r9, 0
-    li r10, 0
-RollCountLoop:
-    cmpw r10, r8
-    bge- RollCountDone
-    lbzx r11, r7, r10
-    andi. r11, r11, 1
-    add r9, r9, r11
-    addi r10, r10, 1
-    b RollCountLoop
-RollCountDone:
-    li r12, 0
-    cmpwi r9, 0
-    bne- RollHavePool
-    li r12, 1                    # empty pool: fall back to everyone
-    mr r9, r8
-RollHavePool:
-    stw r12, 0x30(r1)
-
-    mr r3, r9
-    %call(randi)                 # r3 = 0 .. enabled-1
-
-    # walk to the r3-th enabled table index
-    lwz r7, 0x28(r1)
-    lwz r8, 0x2C(r1)
-    lwz r12, 0x30(r1)
-    li r10, 0
-RollWalk:
-    cmpwi r12, 0
-    bne- RollHit
-    lbzx r11, r7, r10
-    andi. r11, r11, 1
-    beq- RollNext
-RollHit:
-    cmpwi r3, 0
-    beq- RollChosen
-    subi r3, r3, 1
-RollNext:
-    addi r10, r10, 1
-    cmpw r10, r8
-    blt+ RollWalk
-    li r10, 0
-RollChosen:
-    %lwi(r6, RandTable)
-    lbzx r4, r6, r10             # chosen character slot id
-
-    # ---- apply pick: mirrors Melee Random v2's update sequence ----
-    mr r3, r28
-    %call(exchangeCharKind)
-    mr r4, r3
-    mr r3, r28
-    %call(initCharKind)
-
-    lwz r3, 0x1B8(r28)
-    %call(getNumCharColor)
-    cmpwi r3, 1
-    ble- RollCostumeZero
-    %call(randi)
-    b RollCostumeStore
-RollCostumeZero:
-    li r3, 0
-RollCostumeStore:
-    stw r3, 0x1BC(r28)
-
-    mr r3, r28
-    lwz r4, 0x1B8(r28)
-    lwz r5, 0x1B4(r28)
-    lwz r6, 0x1BC(r28)
-    lwz r7, 0x1F4(r28)
-    lbz r7, 0x5C8(r7)
-    lwz r8, 0x1C0(r28)
-    lbz r9, 0x1C4(r28)
-    %call(setCharPic)
-
-    lwz r3, 0x1B8(r28)
-    %call(updateCharFace)
-    %call(getCharFaceParam)
-    addi r3, r3, 1
-    # int -> float in f1, minus module constant (as Melee Random's helper)
-    xoris r3, r3, 0x8000
-    stw r3, 0x3C(r1)
-    lis r0, 0x4330
-    stw r0, 0x38(r1)
-    lfd f0, 0x38(r1)
-    lis r12, 0x806A
-    lfd f1, 0x0EB8(r12)
-    fsubs f1, f0, f1
-    lwz r3, 0xB8(r28)
-    %call(setFranchiseIcon)
-
-    lwz r0, 0x3DC(r31)
-    lwz r27, 0x1B8(r28)          # code after the hook expects the new slot here
-    cmpwi r0, 0
-    beq- RollDone
-    mr r3, r31
-    lwz r4, 0x1B8(r28)
-    lwz r5, 0x1BC(r28)
-    %call(setStockCharKind)
-RollDone:
-    lwz r0, 0x44(r1)
-    mtlr r0
-    addi r1, r1, 0x40
-TheEnd:
-    mr r3, r29
-}
-
-################################################################
 # Hook 3: per-port roll at MATCH START (the path that resolves a
 # coin still sitting on Random when the game begins).
 # At 0x80685824: r25 = port, r23 = pool count (li r23,42 patch at
@@ -550,65 +401,10 @@ DropInited:
 
     lwz r4, 0x1B0(r30)           # port
     cmplwi r4, 3
-    bgt- DropVanilla
+    bgt- DropDone
 
-    # Melee-style instant roll only while L is held during the drop;
-    # otherwise the '?' placement stays a mystery (deferred random)
-    %lwd(r12, g_gfPadSystem)
-    addi r11, r4, 1
-    slwi r11, r11, 6
-    lwzx r12, r12, r11
-    andi. r0, r12, InstantButton
-    beq- DropMystery
-
-    mulli r5, r4, PoolStride
-    %lwi(r6, PoolBase)
-    add r6, r6, r5               # this port's list
-    %lwi(r7, RandCountAddr)
-    lhz r7, 0(r7)                # table size
-
-    li r8, 0                     # listed count
-    li r9, 0
-DropCount:
-    cmpw r9, r7
-    bge- DropCounted
-    lbzx r10, r6, r9
-    andi. r10, r10, 1
-    add r8, r8, r10
-    addi r9, r9, 1
-    b DropCount
-DropCounted:
-    cmpwi r8, 0
-    beq- DropVanilla             # empty list: vanilla deferred random
-
-    stw r6, 0x2C(r1)
-    stw r7, 0x30(r1)
-    mr r3, r8
-    %call(randi)                 # r3 = 0 .. listed-1
-    lwz r6, 0x2C(r1)
-    lwz r7, 0x30(r1)
-    li r9, 0
-DropWalk:
-    lbzx r10, r6, r9
-    andi. r10, r10, 1
-    beq- DropNext
-    cmpwi r3, 0
-    beq- DropChosen
-    subi r3, r3, 1
-DropNext:
-    addi r9, r9, 1
-    cmpw r9, r7
-    blt+ DropWalk
-    li r9, 0
-DropChosen:
-    %lwi(r6, RandTable)
-    lbzx r4, r6, r9              # the rolled character's slot id
-    b DropDone
-
-DropMystery:
-    # deferred random: refresh this port's hidden pre-roll (obj+0x410) from
-    # the current list so the match rolls fresh; empty list keeps the
-    # CSS-entry roll (full roster)
+    # refresh this port's hidden pre-roll (obj+0x410) from the current
+    # list so the match rolls fresh; empty list keeps the CSS-entry roll
     mulli r5, r4, PoolStride
     %lwi(r6, PoolBase)
     add r6, r6, r5
@@ -626,7 +422,7 @@ MystCount:
     b MystCount
 MystCounted:
     cmpwi r8, 0
-    beq- DropVanilla             # empty list: leave the entry roll alone
+    beq- DropDone                # empty list: leave the entry roll alone
     stw r6, 0x2C(r1)
     stw r7, 0x30(r1)
     mr r3, r8
@@ -650,24 +446,15 @@ MystChosen:
     %lwi(r6, RandTable)
     lbzx r6, r6, r9
     stw r6, PreRollOff(r30)      # hidden until the match loads
-    b DropVanilla
 
-DropVanilla:
-    li r4, 0x29
 DropDone:
-    %lwi(r11, DropChoice)
-    stw r4, 0(r11)
     lwz r3, 0x28(r1)
     lwz r0, 0x44(r1)
     mtlr r0
     addi r1, r1, 0x40
+    li r4, 0x29                  # original instruction
 }
 
-HOOK @ $8068B828
-{
-    %lwi(r5, DropChoice)         # the slot chosen in the B818 hook
-    lwz r5, 0(r5)
-}
 
 ################################################################
 # Hooks 5+6: the second random-drop block (other UI flow):
@@ -690,59 +477,9 @@ HOOK @ $806892C4
     lwz r26, 0x14(r27)           # player object
     lwz r4, 0x1B0(r26)           # port
     cmplwi r4, 3
-    bgt- Drop2Vanilla
+    bgt- Drop2Done
 
-    %lwd(r12, g_gfPadSystem)
-    addi r11, r4, 1
-    slwi r11, r11, 6
-    lwzx r12, r12, r11
-    andi. r0, r12, InstantButton
-    beq- Drop2Mystery
-
-    mulli r5, r4, PoolStride
-    %lwi(r6, PoolBase)
-    add r6, r6, r5
-    %lwi(r7, RandCountAddr)
-    lhz r7, 0(r7)
-    li r8, 0
-    li r9, 0
-Drop2Count:
-    cmpw r9, r7
-    bge- Drop2Counted
-    lbzx r10, r6, r9
-    andi. r10, r10, 1
-    add r8, r8, r10
-    addi r9, r9, 1
-    b Drop2Count
-Drop2Counted:
-    cmpwi r8, 0
-    beq- Drop2Vanilla
-    stw r6, 0x30(r1)
-    stw r7, 0x34(r1)
-    mr r3, r8
-    %call(randi)
-    lwz r6, 0x30(r1)
-    lwz r7, 0x34(r1)
-    li r9, 0
-Drop2Walk:
-    lbzx r10, r6, r9
-    andi. r10, r10, 1
-    beq- Drop2Next
-    cmpwi r3, 0
-    beq- Drop2Chosen
-    subi r3, r3, 1
-Drop2Next:
-    addi r9, r9, 1
-    cmpw r9, r7
-    blt+ Drop2Walk
-    li r9, 0
-Drop2Chosen:
-    %lwi(r6, RandTable)
-    lbzx r26, r6, r9             # instant: place the rolled character
-    b Drop2Done
-
-Drop2Mystery:
-    mulli r5, r4, PoolStride
+    mulli r5, r4, PoolStride     # refresh the hidden pre-roll from the list
     %lwi(r6, PoolBase)
     add r6, r6, r5
     %lwi(r7, RandCountAddr)
@@ -759,7 +496,7 @@ Myst2Count:
     b Myst2Count
 Myst2Counted:
     cmpwi r8, 0
-    beq- Drop2Vanilla
+    beq- Drop2Done               # empty list: leave the entry roll alone
     stw r6, 0x30(r1)
     stw r7, 0x34(r1)
     mr r3, r8
@@ -782,26 +519,17 @@ Myst2Next:
 Myst2Chosen:
     %lwi(r6, RandTable)
     lbzx r6, r6, r9
-    stw r6, PreRollOff(r26)      # fresh hidden roll for the match
-    b Drop2Vanilla
+    stw r6, PreRollOff(r26)
 
-Drop2Vanilla:
-    li r26, 0x29
 Drop2Done:
-    %lwi(r11, DropChoice)
-    stw r26, 0(r11)
     lwz r3, 0x28(r1)
     lwz r4, 0x2C(r1)
     lwz r0, 0x44(r1)
     mtlr r0
     addi r1, r1, 0x40
+    li r26, 0x29                 # original instruction
 }
 
-HOOK @ $806892C8
-{
-    %lwi(r5, DropChoice)
-    lwz r5, 0(r5)
-}
 
 
 
