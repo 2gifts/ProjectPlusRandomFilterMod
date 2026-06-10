@@ -35,7 +35,9 @@ HERE = Path(__file__).resolve().parent
 ASM_NAME = "RANDSUB.ASM"
 INCLUDE_LINE = ".include Source/Community/RANDSUB.ASM"
 ANCHOR_INCLUDE = ".include Source/LegacyTE/CSSCustomControls.asm"
-HOOK_SIGS = ["C26898E8", "C2685824", "C268B818", "C26892C4"]
+BLOCK_HEADER = "Melee Random v2"
+BLOCK_LAST_HEX = "7FA3EB78"
+HOOK_SIGS = ["C26898E8", "C268AE24", "C2685824", "C268B818", "C26892C4"]
 BACKUP_SUFFIX = ".randsub-backup"
 
 
@@ -47,10 +49,25 @@ def find_asm() -> Path:
 
 
 def patch_txt(text: str) -> str:
-    """Add the RANDSUB include to RSBE01.TXT. Idempotent."""
+    """Disable the stock Melee Random v2 block (it patches the same site as
+    our melee-style roll hook) and add the RANDSUB include. Idempotent."""
     if INCLUDE_LINE in text:
         print("  RSBE01.TXT already patched -- leaving as is")
         return text
+    lines = text.splitlines()
+    in_block = done = False
+    for i, line in enumerate(lines):
+        if not done and BLOCK_HEADER in line:
+            in_block = True
+        if in_block:
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#"):
+                lines[i] = "#" + line
+            if BLOCK_LAST_HEX in line:
+                in_block, done = False, True
+    if not done:
+        print("  note: Melee Random v2 block not found (already removed?)")
+    text = "\n".join(lines) + "\n"
     if ANCHOR_INCLUDE not in text:
         sys.exit("error: could not find the CSSCustomControls include in "
                  "RSBE01.TXT -- is this a Project+ 3.x build?")

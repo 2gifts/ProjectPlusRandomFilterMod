@@ -15,7 +15,7 @@ P+'s codes hook `$8068xxxx` directly.
 | Vanilla random pick patch | `CODE @ $80685824` | `char = byte[$80680E80 + r0]` |
 | **Melee Random v2 hook** | `C2 @ $8068AE24` (+ `04 @ $8068AE20` NOP) | inline hex in `RSBE01.TXT` ~lines 2123–2191; replaced instruction = `mr r3, r29` |
 
-### Decoded Melee Random v2 (stock code; coexists — its hook site never runs on P+)
+### Decoded Melee Random v2 (stock code; disabled — same hook site as our instant roll, and stale on P+)
 
 Context at `$8068AE24`: `r27` = slot kind being placed (0x28 = Random),
 `r28` = per-player CSS object, `r31` = related object (stock icons), original op `mr r3, r29`.

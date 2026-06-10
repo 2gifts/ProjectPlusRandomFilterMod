@@ -272,6 +272,165 @@ TogOut:
 }
 
 ################################################################
+# Melee-style instant random: drop the coin OUTSIDE the grid and a
+# character is rolled from your list and placed immediately. This is
+# the decide path: a dead-space drop arrives here with r27 = 0x28.
+# Supersedes the stock "Melee Random v2" code, which hooks this same
+# site (the installer disables that block: same-site conflict, and
+# its REL-relative calls are stale on P+). NOPing the vanilla beq at
+# 0x8068AE20 lets the 0x28 case fall through to us.
+# At 0x8068AE24 (original op: mr r3, r29): r27 = slot kind being
+# placed, r28 = player object, r31 = manager.
+################################################################
+op nop @ $8068AE20
+
+HOOK @ $8068AE24
+{
+    cmpwi r27, 0x28
+    bne- TheEnd
+    stwu r1, -0x40(r1)
+    mflr r0
+    stw r0, 0x44(r1)
+
+    # one-time pool init (all characters enabled)
+    %lwi(r11, MagicAddr)
+    lwz r12, 0(r11)
+    %lwi(r10, MagicVal)
+    cmpw r12, r10
+    beq+ RollInited
+    stw r10, 0(r11)
+    %lwi(r9, PoolBase)
+    li r8, PoolTotal
+    li r7, 0                     # empty list = no restriction
+RollInitLoop:
+    subic. r8, r8, 1
+    stbx r7, r9, r8
+    bne+ RollInitLoop
+RollInited:
+
+    # which port is rolling? (player object stores it at +0x1B0)
+    lwz r5, 0x1B0(r28)
+    cmplwi r5, 3
+    ble+ RollPortOk
+    li r5, 0                     # out of range: behave like P1
+RollPortOk:
+    mulli r6, r5, PoolStride
+    %lwi(r7, PoolBase)
+    add r7, r7, r6
+    stw r7, 0x28(r1)             # pool for this port
+
+    %lwi(r8, RandCountAddr)
+    lhz r8, 0(r8)
+    stw r8, 0x2C(r1)             # table size
+
+    # count enabled entries
+    li r9, 0
+    li r10, 0
+RollCountLoop:
+    cmpw r10, r8
+    bge- RollCountDone
+    lbzx r11, r7, r10
+    andi. r11, r11, 1
+    add r9, r9, r11
+    addi r10, r10, 1
+    b RollCountLoop
+RollCountDone:
+    li r12, 0
+    cmpwi r9, 0
+    bne- RollHavePool
+    li r12, 1                    # empty pool: fall back to everyone
+    mr r9, r8
+RollHavePool:
+    stw r12, 0x30(r1)
+
+    mr r3, r9
+    %call(randi)                 # r3 = 0 .. enabled-1
+
+    # walk to the r3-th enabled table index
+    lwz r7, 0x28(r1)
+    lwz r8, 0x2C(r1)
+    lwz r12, 0x30(r1)
+    li r10, 0
+RollWalk:
+    cmpwi r12, 0
+    bne- RollHit
+    lbzx r11, r7, r10
+    andi. r11, r11, 1
+    beq- RollNext
+RollHit:
+    cmpwi r3, 0
+    beq- RollChosen
+    subi r3, r3, 1
+RollNext:
+    addi r10, r10, 1
+    cmpw r10, r8
+    blt+ RollWalk
+    li r10, 0
+RollChosen:
+    %lwi(r6, RandTable)
+    lbzx r4, r6, r10             # chosen character slot id
+
+    # ---- apply pick: mirrors Melee Random v2's update sequence ----
+    mr r3, r28
+    %call(exchangeCharKind)
+    mr r4, r3
+    mr r3, r28
+    %call(initCharKind)
+
+    lwz r3, 0x1B8(r28)
+    %call(getNumCharColor)
+    cmpwi r3, 1
+    ble- RollCostumeZero
+    %call(randi)
+    b RollCostumeStore
+RollCostumeZero:
+    li r3, 0
+RollCostumeStore:
+    stw r3, 0x1BC(r28)
+
+    mr r3, r28
+    lwz r4, 0x1B8(r28)
+    lwz r5, 0x1B4(r28)
+    lwz r6, 0x1BC(r28)
+    lwz r7, 0x1F4(r28)
+    lbz r7, 0x5C8(r7)
+    lwz r8, 0x1C0(r28)
+    lbz r9, 0x1C4(r28)
+    %call(setCharPic)
+
+    lwz r3, 0x1B8(r28)
+    %call(updateCharFace)
+    %call(getCharFaceParam)
+    addi r3, r3, 1
+    # int -> float in f1, minus module constant (as Melee Random's helper)
+    xoris r3, r3, 0x8000
+    stw r3, 0x3C(r1)
+    lis r0, 0x4330
+    stw r0, 0x38(r1)
+    lfd f0, 0x38(r1)
+    lis r12, 0x806A
+    lfd f1, 0x0EB8(r12)
+    fsubs f1, f0, f1
+    lwz r3, 0xB8(r28)
+    %call(setFranchiseIcon)
+
+    lwz r0, 0x3DC(r31)
+    lwz r27, 0x1B8(r28)          # code after the hook expects the new slot here
+    cmpwi r0, 0
+    beq- RollDone
+    mr r3, r31
+    lwz r4, 0x1B8(r28)
+    lwz r5, 0x1BC(r28)
+    %call(setStockCharKind)
+RollDone:
+    lwz r0, 0x44(r1)
+    mtlr r0
+    addi r1, r1, 0x40
+TheEnd:
+    mr r3, r29
+}
+
+################################################################
 # Hook 3: per-port roll at MATCH START (the path that resolves a
 # coin still sitting on Random when the game begins).
 # At 0x80685824: r25 = port, r23 = pool count (li r23,42 patch at

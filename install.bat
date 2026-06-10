@@ -5,9 +5,11 @@ setlocal EnableExtensions
 ::
 :: Usage:  install.bat "E:\Project+"     (or just double-click and type the path)
 ::
-:: This script does the same three steps described in README.md:
+:: This script does the same steps described in README.md:
 ::   1. copy RANDSUB.ASM into the build's Source\Community\ folder
-::   2. add one ".include" line to RSBE01.TXT (idempotent; backup kept)
+::   2. patch RSBE01.TXT: comment out the stock "Melee Random v2" code (it
+::      hooks the same address this mod uses) and add one ".include" line
+::      (idempotent; backups kept)
 ::   3. rebuild RSBE01.GCT with the GCTRealMate.exe that ships in the build
 ::
 
@@ -35,13 +37,26 @@ if not exist "%TARGET%\Source\Community" mkdir "%TARGET%\Source\Community"
 copy /y "%ASM%" "%TARGET%\Source\Community\RANDSUB.ASM" >nul
 echo   copied RANDSUB.ASM to Source\Community\
 
-:: ---- step 2: add the .include line to RSBE01.TXT (skip if already there)
+:: ---- step 2: patch RSBE01.TXT (skip if already done). Two changes:
+::      a) comment out the stock "Melee Random v2" hex block -- it patches
+::         0x8068AE20/24, the same site this mod's melee-style roll hooks
+::      b) add our .include right after the CSSCustomControls include
 findstr /c:"Source/Community/RANDSUB.ASM" "%TARGET%\RSBE01.TXT" >nul 2>&1
 if not errorlevel 1 (
-    echo   RSBE01.TXT already has the include line
+    echo   RSBE01.TXT already patched
 ) else (
     powershell -NoProfile -Command "$p = '%TARGET%\RSBE01.TXT';" ^
-        "$t = [IO.File]::ReadAllText($p);" ^
+        "$lines = [IO.File]::ReadAllLines($p);" ^
+        "$in = $false; $done = $false;" ^
+        "for ($i = 0; $i -lt $lines.Count; $i++) {" ^
+        "  if (-not $done -and $lines[$i] -match 'Melee Random v2') { $in = $true };" ^
+        "  if ($in) {" ^
+        "    if ($lines[$i].Trim() -and -not $lines[$i].StartsWith('#')) { $lines[$i] = '#' + $lines[$i] };" ^
+        "    if ($lines[$i] -match '7FA3EB78') { $done = $true; $in = $false }" ^
+        "  }" ^
+        "};" ^
+        "if (-not $done) { Write-Output '  note: Melee Random v2 block not found (already removed?)' };" ^
+        "$t = [string]::Join([Environment]::NewLine, $lines);" ^
         "$a = '.include Source/LegacyTE/CSSCustomControls.asm';" ^
         "if (-not $t.Contains($a)) { Write-Output 'ANCHOR-MISSING'; exit 1 };" ^
         "$t = $t.Replace($a, $a + \"`r`n`r`n.include Source/Community/RANDSUB.ASM\");" ^
@@ -63,12 +78,12 @@ powershell -NoProfile -Command "$build = '%TARGET%';" ^
     "if (-not (Test-Path $gct) -or (Get-Item $gct).LastWriteTime -eq $before) { Write-Output 'BUILD-FAILED'; exit 1 }"
 if errorlevel 1 echo error: GCTRealMate did not produce a new RSBE01.GCT & goto :fail
 
-:: ---- verify the mod's four hooks are in the new GCT
+:: ---- verify the mod's five hooks are in the new GCT
 powershell -NoProfile -Command "$b = [IO.File]::ReadAllBytes('%TARGET%\RSBE01.GCT');" ^
     "$hex = [BitConverter]::ToString($b) -replace '-','';" ^
-    "$missing = @('C26898E8','C2685824','C268B818','C26892C4') | Where-Object { -not $hex.Contains($_) };" ^
+    "$missing = @('C26898E8','C268AE24','C2685824','C268B818','C26892C4') | Where-Object { -not $hex.Contains($_) };" ^
     "if ($missing) { Write-Output ('missing hooks: ' + ($missing -join ' ')); exit 1 };" ^
-    "Write-Output '  all 4 hooks present in RSBE01.GCT'"
+    "Write-Output '  all 5 hooks present in RSBE01.GCT'"
 if errorlevel 1 echo error: rebuilt GCT failed verification & goto :fail
 
 echo Done! Put the SD card back (or start Dolphin) and enjoy.

@@ -13,9 +13,9 @@ Works on **Wii console** and **Project+ Dolphin**.
 | Hover a character, **tap L** | Add it to your random list (tap again to remove — a menu sound confirms) |
 | Hover the **'?' (Random) tile** with your coin in hand, **tap L** | Clear your list (reset sound) |
 | **Drop your coin on Random** | Mystery random: the panel keeps showing '?' and the match rolls a fresh character **from your list** when it loads. Leave the coin there and every following match re-rolls. |
+| **Drop your coin outside the grid** | Melee-style instant random: a character **from your list** is rolled and placed on the spot. Pick the coin up (B) and drop again to re-roll. |
 
 - Every port's list is independent — four players, four lists.
-- The game's instant random (revealed on the CSS) rolls from your list too.
 - **Empty list = vanilla behavior** (random over the whole roster), so the mod
   is invisible until you build a list.
 - Lists persist across matches and CSS visits; they reset on power off.
@@ -25,9 +25,10 @@ Works on **Wii console** and **Project+ Dolphin**.
 Built and tested against **Project+ v3.1.5** (Wii console and Project+
 Dolphin). The mod is one self-contained assembly file compiled into the
 build's codeset by the GCTRealMate pipeline that ships inside every P+ build —
-no game files are replaced. The stock codeset is left untouched (the included
-"Melee Random v2" code hooks a code path that never runs on Project+'s CSS,
-so nothing needs to be disabled).
+no game files are replaced. The only stock code touched is "[Legacy TE]
+Melee Random v2", which is commented out because this mod hooks the same
+address with a per-port-aware replacement (that code is where the
+drop-outside-the-grid instant random comes from).
 
 Offline only: the netplay codeset is intentionally not patched, because the
 lists live in local console memory and would desync online rolls.
@@ -42,8 +43,11 @@ Put your Project+ SD card in your PC, then either:
 
 1. Copy [`src/RANDSUB.ASM`](src/RANDSUB.ASM) to `Project+/Source/Community/RANDSUB.ASM`
    on the SD card (create the `Community` folder).
-2. Open `Project+/RSBE01.TXT` in a text editor and add this line right after
-   the `.include Source/LegacyTE/CSSCustomControls.asm` line:
+2. Open `Project+/RSBE01.TXT` in a text editor:
+   - comment out (prefix `#`) the `[Legacy TE] Melee Random v2` code — the
+     header line and each of its `* xxxxxxxx xxxxxxxx` hex lines — and
+   - add this line right after the
+     `.include Source/LegacyTE/CSSCustomControls.asm` line:
 
    ```
    .include Source/Community/RANDSUB.ASM
@@ -74,8 +78,9 @@ can unpack and repack it for you:
 ## Uninstall
 
 Restore the two `.randsub-backup` files the script created (or, manually:
-delete the `.include Source/Community/RANDSUB.ASM` line from `RSBE01.TXT`
-and drag it onto `GCTRealMate.exe` again). Updating Project+ also wipes the
+delete the `.include Source/Community/RANDSUB.ASM` line from `RSBE01.TXT`,
+un-comment the Melee Random v2 block, and drag the file onto
+`GCTRealMate.exe` again). Updating Project+ also wipes the
 mod — just reinstall after updating.
 
 ## FAQ
@@ -99,11 +104,13 @@ pool, editable live on the CSS without leaving the screen.
 
 ## How it works
 
-Four small PowerPC assembly hooks injected as Gecko codes through Project+'s
+Five small PowerPC assembly hooks injected as Gecko codes through Project+'s
 own code pipeline: one reads each port's buttons on the CSS and edits that
 port's list (with sound feedback), one rolls each port's hidden pre-pick at
-CSS entry, and two re-roll it from the current list whenever a coin lands on
-Random, so both the instant and mystery random paths draw from the list.
+CSS entry, two re-roll it from the current list whenever a coin lands on
+Random (the mystery path), and one performs the melee-style instant roll
+when a coin is dropped outside the grid — a per-port-aware replacement for
+the stock Melee Random v2 code, which hooks the same address.
 [`src/RANDSUB.ASM`](src/RANDSUB.ASM) is heavily commented; the full
 reverse-engineering notes and address tables are in
 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) and

@@ -26,8 +26,9 @@ Every port has its own independent random list:
 - **Drop your coin on Random** — your character stays a **mystery**: the panel
   shows '?', and when the match loads you get a fresh roll from your list.
   Leave the coin there and keep playing — every match re-rolls from your list.
-- The game's own instant random (screen-edge drop) consumes the same hidden
-  pre-roll the mod maintains, so it also rolls from your list.
+- **Drop your coin outside the grid** — melee-style instant roll from your
+  list, revealed on the spot (the decide path: dead-space drops arrive there
+  with slot kind `0x28`).
 - **Empty list = no restriction** (vanilla random over the full roster).
 - Lists live in RAM: they persist across matches and CSS visits, reset at
   power-off.
@@ -35,7 +36,7 @@ Every port has its own independent random list:
 ## Layout
 
 ```
-src/RANDSUB.ASM        the whole mod: 4 GCTRM hooks + storage (heavily commented)
+src/RANDSUB.ASM        the whole mod: 5 GCTRM hooks + storage (heavily commented)
 tools/sdfat.py         read/write files inside Dolphin's virtual SD (sd.raw)
 tools/wiidisc.py       extract files from a Wii ISO (used for the CSS module)
 tools/dolmem.py        read/poke/search live Dolphin emulated memory
@@ -47,10 +48,10 @@ docs/addresses.md      verified address fact sheet (P+ 3.1.5)
 ## Build & install (Dolphin)
 
 1. `src/RANDSUB.ASM` → `build/Project+/Source/Community/RANDSUB.ASM`
-2. `RSBE01.TXT` includes it (after CSSCustomControls). The stock codeset is
-   left untouched — "Melee Random v2" only patches `$8068AE20/24`, a decide-path
-   branch that never executes on P+'s CSS (it acts on slot `0x28`; P+ random
-   placements carry `0x29`), so it coexists harmlessly.
+2. `RSBE01.TXT` includes it (after CSSCustomControls) and has the stock
+   "Melee Random v2" block commented out: that code patches `$8068AE20/24`,
+   the same site as our melee-style roll hook (and its REL-relative calls are
+   stale on P+ — with the stock block active, edge drops do nothing).
 3. From `build/Project+` in PowerShell: `& .\GCTRealMate.exe ".\RSBE01.TXT"`
    (GCTRM hangs after printing "bytes written" — kill the process; the GCT is done).
 4. Inject into the virtual SD (stop Dolphin first):
@@ -71,7 +72,7 @@ copied to a Wii.)
 
 ## How it works
 
-Four hooks (all verified live against P+ 3.1.5; see `docs/addresses.md`):
+Five hooks (all verified live against P+ 3.1.5; see `docs/addresses.md`):
 
 1. **Toggle** (`HOOK @ $806898E8`) — per-port CSS input processor (every frame,
    port + player object in registers). Reads held buttons directly from the pad
@@ -91,13 +92,20 @@ Four hooks (all verified live against P+ 3.1.5; see `docs/addresses.md`):
    per port (`r25`) from the port's list. This is what the match consumes for
    ports left on raw random, so consecutive matches each get a fresh roll.
 
-Removed in v1.1: a Z-modifier instant-roll drop mode (redundant — the game's
-own instant random already consumes the pre-roll), the panel-state pair hooks
-`$8068B828`/`$806892C8` (only needed by the Z mode), and a belt-and-braces
-hook at `$8068AE24` on the vanilla decide path (never executes on P+; it is
-also the site Melee Random v2 patches, so dropping it removes the only
-codeset overlap). A vanilla-Brawl/PM variant will need that decide-path hook
-back.
+4. **Melee-style instant roll** (`op nop @ $8068AE20` + `HOOK @ $8068AE24`,
+   the decide path) — a coin dropped OUTSIDE the grid arrives here with slot
+   kind `0x28`; the hook rolls from the dropping port's list and places the
+   character immediately (char kind, costume, panel pic, franchise icon,
+   stock icons — mirroring Melee Random v2's update sequence). This is the
+   site the stock "Melee Random v2" code patches, which is why the installer
+   comments that block out. Empirically the stock block is also broken on
+   P+ (stale REL-relative calls): with it active, edge drops do nothing.
+
+Removed in v1.1: a Z-modifier instant-roll drop mode and the panel-state pair
+hooks `$8068B828`/`$806892C8` that existed only to support it (the edge-drop
+instant roll covers the use case). v1.1 initially also removed the decide-path
+hook as "vestigial" — wrong: dead-space drops DO reach it; it is the entire
+melee-style instant random. Restored in v1.1.1.
 
 Key data flow: the CSS hands each port's selection to the match via the player
 object (static pointer array `0x805882E0`); a port still on `0x29` uses the
