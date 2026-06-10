@@ -1,0 +1,14 @@
+# Working copy of the Project+ build (copyrighted game/mod content -- never commit)
+build/
+
+# memory snapshots and probe output from the dev tools
+*.bin
+*.snap
+padprobe*.txt
+
+# python
+__pycache__/
+*.pyc
+
+# backups the installer creates when run in-place
+*.randsub-backup
