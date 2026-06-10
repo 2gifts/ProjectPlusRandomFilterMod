@@ -177,10 +177,24 @@ def install_into_sdraw(sdraw: Path, no_build: bool) -> None:
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("target", help="Project+ build folder (SD card) or Dolphin sd.raw")
+    ap.add_argument("target", nargs="?",
+                    help="Project+ build folder (SD card) or Dolphin sd.raw")
     ap.add_argument("--no-build", action="store_true",
                     help="patch only; skip running GCTRealMate")
     args = ap.parse_args()
+
+    interactive = args.target is None
+    if interactive:
+        # double-clicked: ask for the path instead of flashing a usage error
+        print(__doc__)
+        try:
+            args.target = input(
+                "Path to your Project+ folder (e.g. E:\\Project+) "
+                "or Dolphin sd.raw: ").strip().strip('"')
+        except EOFError:
+            sys.exit(1)
+        if not args.target:
+            sys.exit("no path given")
 
     target = Path(args.target)
     if not target.exists():
@@ -193,8 +207,25 @@ def main():
     else:
         sys.exit("error: target must be a Project+ folder or an sd.raw image")
     print("Done! Start the game and enjoy.")
-    print("(Uninstall: restore the *.randsub-backup files.)")
+    print("(Uninstall: restore the *.randsub-backup files, or just update P+.)")
+
+
+def _pause_if_doubleclicked():
+    # keep the window open when launched by double-click (no arguments)
+    if len(sys.argv) < 2:
+        try:
+            input("\nPress Enter to close...")
+        except EOFError:
+            pass
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit as e:
+        if e.code not in (0, None):
+            print(e)
+        _pause_if_doubleclicked()
+        raise
+    else:
+        _pause_if_doubleclicked()
