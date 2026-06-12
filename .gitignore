@@ -12,3 +12,6 @@ __pycache__/
 
 # backups the installer creates when run in-place
 *.randsub-backup
+
+# local netplay test kit (contains compiled P+ codeset -- not ours to ship)
+netplay-test/
