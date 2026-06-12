@@ -1,10 +1,20 @@
 # Per-Port Random Subset for Project+
 
+![Project+ 3.1.5](https://img.shields.io/badge/Project%2B-3.1.5-1fc28e)
+![Platforms](https://img.shields.io/badge/platform-Wii%20%7C%20Dolphin-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+
 A Project+ code mod that gives **each controller port its own random-character
 list**, built and edited live on the character select screen. Pick the
 characters *you* feel like playing, drop your coin on Random, and the game
 only rolls from your list — while every other player keeps their own.
 Works on **Wii console** and **Project+ Dolphin**.
+
+![Demo: building a list with L, dropping the coin on Random, and the match rolling from the list](assets/demo.gif)
+
+*Player 3 taps L on a few favorites (each tap plays a confirm sound), drops
+the coin on the '?' Random tile — the pick stays a mystery on the select
+screen — and the match loads with a character rolled from that list.*
 
 ## What it does
 
