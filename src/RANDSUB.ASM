@@ -62,6 +62,11 @@
 .alias SFX_On        = 0x26         # menu "enter"
 .alias SFX_Off       = 0x28         # menu "exit"
 .alias SFX_Reset     = 0x25         # menu "enter 3"
+# playSE has no volume argument, so to make the list-edit blips feel more
+# tactile we fire the same sound several times in the one frame. Identical
+# sample-aligned voices sum amplitude (2x ~= +6 dB, 3x ~= +9.5 dB) without
+# changing the sound itself. Tune here.
+.alias SfxRepeat     = 2
 
 .macro lwi(<reg>, <val>)
 {
@@ -252,12 +257,23 @@ RerollChosen:
     lwz r4, 0x48(r1)
 
 TogSfx:
+    # stack SfxRepeat identical voices in this frame for a louder blip.
+    # %call clobbers CTR, so the loop counter lives on the stack (0x44 is
+    # free in this hook -- LR is saved at 0xB4). r4 (the id) is at 0x48.
+    li r9, SfxRepeat
+    stw r9, 0x44(r1)
+TogSfxLoop:
     %lwd(r3, g_sndSystem)
+    lwz r4, 0x48(r1)
     li r5, -1
     li r6, 0
     li r7, 0
     li r8, -1
     %call(playSE)
+    lwz r9, 0x44(r1)
+    subic. r9, r9, 1
+    stw r9, 0x44(r1)
+    bne+ TogSfxLoop
     b TogOut
 
 TogOut:

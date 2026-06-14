@@ -5,12 +5,13 @@ setlocal EnableExtensions
 ::
 :: Usage:  install.bat "E:\Project+"     (or just double-click and type the path)
 ::
-:: This script does the same steps described in README.md:
+:: This script does the same steps described in README.md, for BOTH the offline
+:: codeset (RSBE01) and the netplay codeset (NETPLAY), so the mod works online too:
 ::   1. copy RANDSUB.ASM into the build's Source\Community\ folder
-::   2. patch RSBE01.TXT: comment out the stock "Melee Random v2" code (it
-::      hooks the same address this mod uses) and add one ".include" line
+::   2. patch the .TXT: comment out the stock "Melee Random v2" code (it hooks
+::      the same address this mod uses) and add one ".include" line
 ::      (idempotent; backups kept)
-::   3. rebuild RSBE01.GCT with the GCTRealMate.exe that ships in the build
+::   3. rebuild the .GCT with the GCTRealMate.exe that ships in the build
 ::
 
 :: ---- locate RANDSUB.ASM next to this script (repo: src\, release zip: root)
@@ -28,24 +29,47 @@ if not exist "%TARGET%\GCTRealMate.exe" echo error: GCTRealMate.exe not found in
 
 echo Installing Per-Port Random Subset into "%TARGET%" ...
 
-:: ---- one-time backups (restore these to uninstall)
-if not exist "%TARGET%\RSBE01.TXT.randsub-backup" copy /y "%TARGET%\RSBE01.TXT" "%TARGET%\RSBE01.TXT.randsub-backup" >nul
-if not exist "%TARGET%\RSBE01.GCT.randsub-backup" if exist "%TARGET%\RSBE01.GCT" copy /y "%TARGET%\RSBE01.GCT" "%TARGET%\RSBE01.GCT.randsub-backup" >nul
-
-:: ---- step 1: copy the code into the build
+:: ---- copy the code into the build (shared by both codesets)
 if not exist "%TARGET%\Source\Community" mkdir "%TARGET%\Source\Community"
 copy /y "%ASM%" "%TARGET%\Source\Community\RANDSUB.ASM" >nul
 echo   copied RANDSUB.ASM to Source\Community\
 
-:: ---- step 2: patch RSBE01.TXT (skip if already done). Two changes:
-::      a) comment out the stock "Melee Random v2" hex block -- it patches
-::         0x8068AE20/24, the same site this mod's melee-style roll hooks
-::      b) add our .include right after the CSSCustomControls include
-findstr /c:"Source/Community/RANDSUB.ASM" "%TARGET%\RSBE01.TXT" >nul 2>&1
-if not errorlevel 1 (
-    echo   RSBE01.TXT already patched
+:: ---- offline codeset (always present)
+call :do_codeset RSBE01 || goto :fail
+
+:: ---- netplay codeset (present on netplay builds; skipped otherwise)
+if exist "%TARGET%\NETPLAY.TXT" (
+    call :do_codeset NETPLAY || goto :fail
 ) else (
-    powershell -NoProfile -Command "$p = '%TARGET%\RSBE01.TXT';" ^
+    echo   NETPLAY.TXT not found -- offline-only build, skipping netplay codeset
+)
+
+echo Done! Put the SD card back (or start Dolphin) and enjoy.
+echo (Uninstall: restore the .randsub-backup files, or re-run your P+ updater.)
+if "%~1"=="" pause
+exit /b 0
+
+
+:: ===========================================================================
+:: :do_codeset <NAME>   -- patch <NAME>.TXT and rebuild <NAME>.GCT
+:: ===========================================================================
+:do_codeset
+set "CS=%~1"
+set "TXT=%TARGET%\%CS%.TXT"
+set "GCT=%TARGET%\%CS%.GCT"
+
+:: one-time backups (restore these to uninstall)
+if not exist "%TXT%.randsub-backup" copy /y "%TXT%" "%TXT%.randsub-backup" >nul
+if not exist "%GCT%.randsub-backup" if exist "%GCT%" copy /y "%GCT%" "%GCT%.randsub-backup" >nul
+
+:: patch the .TXT (skip if already done): comment out the stock Melee Random v2
+:: block (it patches 0x8068AE20/24, the same site this mod hooks) and add our
+:: .include right after the CSSCustomControls include
+findstr /c:"Source/Community/RANDSUB.ASM" "%TXT%" >nul 2>&1
+if not errorlevel 1 (
+    echo   %CS%.TXT already patched
+) else (
+    powershell -NoProfile -Command "$p = '%TXT%';" ^
         "$lines = [IO.File]::ReadAllLines($p);" ^
         "$in = $false; $done = $false;" ^
         "for ($i = 0; $i -lt $lines.Count; $i++) {" ^
@@ -61,34 +85,30 @@ if not errorlevel 1 (
         "if (-not $t.Contains($a)) { Write-Output 'ANCHOR-MISSING'; exit 1 };" ^
         "$t = $t.Replace($a, $a + \"`r`n`r`n.include Source/Community/RANDSUB.ASM\");" ^
         "[IO.File]::WriteAllText($p, $t)"
-    if errorlevel 1 echo error: could not find the include anchor in RSBE01.TXT -- is this a Project+ 3.x build? & goto :fail
-    echo   RSBE01.TXT patched
+    if errorlevel 1 echo error: could not find the include anchor in %CS%.TXT -- is this a Project+ 3.x build? & exit /b 1
+    echo   %CS%.TXT patched
 )
 
-:: ---- step 3: rebuild RSBE01.GCT (GCTRealMate stays open when finished; we
-::      watch for the new GCT and close it -- same as pressing a key yourself)
-echo   rebuilding RSBE01.GCT ...
+:: rebuild the .GCT (GCTRealMate stays open when finished; we watch for the new
+:: GCT and close it -- same as pressing a key yourself)
+echo   rebuilding %CS%.GCT ...
 powershell -NoProfile -Command "$build = '%TARGET%';" ^
-    "$gct = Join-Path $build 'RSBE01.GCT';" ^
+    "$gct = '%GCT%';" ^
     "$before = if (Test-Path $gct) { (Get-Item $gct).LastWriteTime } else { Get-Date 0 };" ^
-    "$p = Start-Process -FilePath (Join-Path $build 'GCTRealMate.exe') -ArgumentList '.\RSBE01.TXT' -WorkingDirectory $build -PassThru -WindowStyle Hidden;" ^
+    "$p = Start-Process -FilePath (Join-Path $build 'GCTRealMate.exe') -ArgumentList '.\%CS%.TXT' -WorkingDirectory $build -PassThru -WindowStyle Hidden;" ^
     "$deadline = (Get-Date).AddSeconds(90);" ^
     "while ((Get-Date) -lt $deadline) { Start-Sleep 2; if ((Test-Path $gct) -and (Get-Item $gct).LastWriteTime -ne $before) { Start-Sleep 2; break } };" ^
     "Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue;" ^
     "if (-not (Test-Path $gct) -or (Get-Item $gct).LastWriteTime -eq $before) { Write-Output 'BUILD-FAILED'; exit 1 }"
-if errorlevel 1 echo error: GCTRealMate did not produce a new RSBE01.GCT & goto :fail
+if errorlevel 1 echo error: GCTRealMate did not produce a new %CS%.GCT & exit /b 1
 
-:: ---- verify the mod's five hooks are in the new GCT
-powershell -NoProfile -Command "$b = [IO.File]::ReadAllBytes('%TARGET%\RSBE01.GCT');" ^
+:: verify the mod's five hooks are in the new GCT
+powershell -NoProfile -Command "$b = [IO.File]::ReadAllBytes('%GCT%');" ^
     "$hex = [BitConverter]::ToString($b) -replace '-','';" ^
     "$missing = @('C26898E8','C268AE24','C2685824','C268B818','C26892C4') | Where-Object { -not $hex.Contains($_) };" ^
     "if ($missing) { Write-Output ('missing hooks: ' + ($missing -join ' ')); exit 1 };" ^
-    "Write-Output '  all 5 hooks present in RSBE01.GCT'"
-if errorlevel 1 echo error: rebuilt GCT failed verification & goto :fail
-
-echo Done! Put the SD card back (or start Dolphin) and enjoy.
-echo (Uninstall: restore the .randsub-backup files, or re-run your P+ updater.)
-if "%~1"=="" pause
+    "Write-Output ('  all 5 hooks present in %CS%.GCT')"
+if errorlevel 1 echo error: rebuilt %CS%.GCT failed verification & exit /b 1
 exit /b 0
 
 :fail

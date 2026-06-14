@@ -48,11 +48,11 @@ def find_asm() -> Path:
     sys.exit(f"error: {ASM_NAME} not found next to install.py")
 
 
-def patch_txt(text: str) -> str:
+def patch_txt(text: str, name: str = "RSBE01.TXT") -> str:
     """Disable the stock Melee Random v2 block (it patches the same site as
     our melee-style roll hook) and add the RANDSUB include. Idempotent."""
     if INCLUDE_LINE in text:
-        print("  RSBE01.TXT already patched -- leaving as is")
+        print(f"  {name} already patched -- leaving as is")
         return text
     lines = text.splitlines()
     in_block = done = False
@@ -66,24 +66,25 @@ def patch_txt(text: str) -> str:
             if BLOCK_LAST_HEX in line:
                 in_block, done = False, True
     if not done:
-        print("  note: Melee Random v2 block not found (already removed?)")
+        print(f"  note: Melee Random v2 block not found in {name} (already removed?)")
     text = "\n".join(lines) + "\n"
     if ANCHOR_INCLUDE not in text:
-        sys.exit("error: could not find the CSSCustomControls include in "
-                 "RSBE01.TXT -- is this a Project+ 3.x build?")
+        sys.exit(f"error: could not find the CSSCustomControls include in "
+                 f"{name} -- is this a Project+ 3.x build?")
+    print(f"  {name} patched")
     return text.replace(ANCHOR_INCLUDE,
                         ANCHOR_INCLUDE + "\n\n" + INCLUDE_LINE, 1)
 
 
-def run_gctrm(build: Path) -> None:
+def run_gctrm(build: Path, txt_name: str) -> None:
     """GCTRealMate compiles the codeset but does not exit afterwards; watch
     the GCT mtime and kill the process when the output is written."""
     gctrm = build / "GCTRealMate.exe"
-    gct = build / "RSBE01.GCT"
+    gct = build / (txt_name[:-4] + ".GCT")
     if not gctrm.exists():
         sys.exit("error: GCTRealMate.exe not found in the build folder")
     before = gct.stat().st_mtime if gct.exists() else 0
-    proc = subprocess.Popen([str(gctrm), ".\\RSBE01.TXT"], cwd=str(build),
+    proc = subprocess.Popen([str(gctrm), ".\\" + txt_name], cwd=str(build),
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     deadline = time.time() + 90
     while time.time() < deadline:
@@ -93,23 +94,24 @@ def run_gctrm(build: Path) -> None:
             break
     proc.kill()
     if not gct.exists() or gct.stat().st_mtime == before:
-        sys.exit("error: GCTRealMate did not produce a new RSBE01.GCT -- "
+        sys.exit(f"error: GCTRealMate did not produce a new {gct.name} -- "
                  "run it manually and check its output for errors")
 
 
-def verify_gct(data: bytes) -> None:
+def verify_gct(data: bytes, gct_name: str) -> None:
     missing = [s for s in HOOK_SIGS if data.find(bytes.fromhex(s)) < 0]
     if missing:
-        sys.exit(f"error: rebuilt GCT is missing hooks: {missing}")
-    print(f"  all {len(HOOK_SIGS)} hooks present in RSBE01.GCT")
+        sys.exit(f"error: rebuilt {gct_name} is missing hooks: {missing}")
+    print(f"  all {len(HOOK_SIGS)} hooks present in {gct_name}")
 
 
-def install_into_folder(build: Path, no_build: bool) -> None:
+def install_one_codeset(build: Path, txt_name: str, no_build: bool) -> None:
+    """Patch and rebuild one codeset (RSBE01 = offline, NETPLAY = online)."""
     txt = next((p for p in build.iterdir()
-                if p.name.lower() == "rsbe01.txt"), None)
+                if p.name.lower() == txt_name.lower()), None)
     if txt is None:
-        sys.exit(f"error: RSBE01.TXT not found in {build}")
-    gct = build / "RSBE01.GCT"
+        return  # codeset not present in this build -- skip silently
+    gct = build / (txt_name[:-4] + ".GCT")
 
     for f in (txt, gct):
         bak = f.with_name(f.name + BACKUP_SUFFIX)
@@ -117,21 +119,30 @@ def install_into_folder(build: Path, no_build: bool) -> None:
             shutil.copy2(f, bak)
             print(f"  backup: {bak.name}")
 
+    patched = patch_txt(txt.read_text(encoding="utf-8", errors="replace"),
+                        txt.name)
+    txt.write_text(patched, encoding="utf-8", newline="\r\n")
+
+    if no_build:
+        print(f"  --no-build: run GCTRealMate.exe on {txt.name} yourself")
+        return
+    print(f"  rebuilding {gct.name} (takes ~10s)...")
+    run_gctrm(build, txt.name)
+    verify_gct(gct.read_bytes(), gct.name)
+
+
+def install_into_folder(build: Path, no_build: bool) -> None:
+    if not any(p.name.lower() == "rsbe01.txt" for p in build.iterdir()):
+        sys.exit(f"error: RSBE01.TXT not found in {build}")
+
     dest = build / "Source" / "Community" / ASM_NAME
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(find_asm(), dest)
     print(f"  copied {ASM_NAME} -> {dest.relative_to(build)}")
 
-    patched = patch_txt(txt.read_text(encoding="utf-8", errors="replace"))
-    txt.write_text(patched, encoding="utf-8", newline="\r\n")
-    print("  RSBE01.TXT patched")
-
-    if no_build:
-        print("  --no-build: run GCTRealMate.exe on RSBE01.TXT yourself")
-        return
-    print("  rebuilding RSBE01.GCT (takes ~10s)...")
-    run_gctrm(build)
-    verify_gct(gct.read_bytes())
+    # offline codeset (always) + netplay codeset (if the build ships one)
+    install_one_codeset(build, "RSBE01.TXT", no_build)
+    install_one_codeset(build, "NETPLAY.TXT", no_build)
 
 
 def install_into_sdraw(sdraw: Path, no_build: bool) -> None:
@@ -156,11 +167,18 @@ def install_into_sdraw(sdraw: Path, no_build: bool) -> None:
         fs.extract("Project+/BOOST.TXT", work / "BOOST.TXT")
         fs.extract("Project+/GCTRealMate.exe", work / "GCTRealMate.exe")
         fs.extract("Project+/Source", work / "Source")
+        # netplay codeset, if this build has one
+        has_netplay = fs.lookup("Project+/NETPLAY.TXT") is not None
+        if has_netplay:
+            fs.extract("Project+/NETPLAY.TXT", work / "NETPLAY.TXT")
         install_into_folder(work, no_build)
         print("  writing changes back into sd.raw...")
         fs = Fat32(str(sdraw), writable=True)
         fs.replace_file("Project+/RSBE01.TXT", (work / "RSBE01.TXT").read_bytes())
         fs.replace_file("Project+/RSBE01.GCT", (work / "RSBE01.GCT").read_bytes())
+        if has_netplay and not no_build:
+            fs.replace_file("Project+/NETPLAY.TXT", (work / "NETPLAY.TXT").read_bytes())
+            fs.replace_file("Project+/NETPLAY.GCT", (work / "NETPLAY.GCT").read_bytes())
         fs.add_file("Project+/Source/Community", ASM_NAME,
                     (work / "Source" / "Community" / ASM_NAME).read_bytes())
 

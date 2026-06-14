@@ -40,8 +40,14 @@ Melee Random v2", which is commented out because this mod hooks the same
 address with a per-port-aware replacement (that code is where the
 drop-outside-the-grid instant random comes from).
 
-Offline only: the netplay codeset is intentionally not patched, because the
-lists live in local console memory and would desync online rolls.
+**Netplay: supported.** The installer patches the netplay codeset
+(`NETPLAY.GCT`) as well as the offline one, and it has been tested over
+netplay. Project+ netplay is lockstep-deterministic — every port's inputs are
+synced and both clients run identical emulation — so the lists, the rolls
+(which use the game's own RNG), and the per-port state stay bit-identical on
+both ends. **Both players must be on a build with the mod installed**; as with
+any code mod, a mismatched codeset between players desyncs regardless of this
+mod.
 
 ## Install
 
@@ -65,11 +71,13 @@ Put your Project+ SD card in your PC, then either:
 
 3. Drag `RSBE01.TXT` onto `GCTRealMate.exe` (both are already in the
    `Project+` folder) to rebuild `RSBE01.GCT`.
+4. **For netplay**, repeat steps 2–3 on `Project+/NETPLAY.TXT` (it contains
+   the same two anchors) to rebuild `NETPLAY.GCT`. Skip this for offline-only.
 
 **Option B — the install script** (Windows): run
 [`install.bat`](install.bat) and give it your SD card's `Project+` folder
-(double-click it, or `install.bat "E:\Project+"`). It does the same three
-steps, keeps backups, and verifies the result.
+(double-click it, or `install.bat "E:\Project+"`). It does the same steps for
+both the offline and netplay codesets, keeps backups, and verifies the result.
 
 Eject the card and launch Project+ on the Wii as usual.
 
@@ -87,11 +95,11 @@ can unpack and repack it for you:
 
 ## Uninstall
 
-Restore the two `.randsub-backup` files the script created (or, manually:
-delete the `.include Source/Community/RANDSUB.ASM` line from `RSBE01.TXT`,
-un-comment the Melee Random v2 block, and drag the file onto
-`GCTRealMate.exe` again). Updating Project+ also wipes the
-mod — just reinstall after updating.
+Restore the `.randsub-backup` files the script created (or, manually: delete
+the `.include Source/Community/RANDSUB.ASM` line from `RSBE01.TXT` — and
+`NETPLAY.TXT` if you patched it — un-comment the Melee Random v2 block, and
+drag the file(s) onto `GCTRealMate.exe` again). Updating Project+ also wipes
+the mod — just reinstall after updating.
 
 ## FAQ
 
@@ -100,12 +108,15 @@ Not yet — the current hooks target Project+'s character select screen.
 Vanilla Brawl / PM variants are planned (the addresses barely differ).
 
 **Will it desync netplay?**
-No — only the offline codeset (`RSBE01.GCT`) is patched. The netplay codeset
-is intentionally left untouched.
+No. Both the offline and netplay codesets are patched, and netplay has been
+tested. Project+ netplay runs both clients in lockstep on identical emulated
+state, so the per-port lists and rolls stay in sync. The only requirement is
+that **both players have the mod installed** — a codeset mismatch between
+players desyncs with or without this mod.
 
 **A Project+ update broke it?**
-Updates replace `RSBE01.TXT` and `RSBE01.GCT`. Reinstall (it's idempotent and
-safe to re-run any time).
+Updates replace the codeset files. Reinstall (it's idempotent and safe to
+re-run any time).
 
 **How is this different from "Custom Random" codes?**
 Classic custom-random codes (spunit262's, Sammi-Husky's Melee Random) use

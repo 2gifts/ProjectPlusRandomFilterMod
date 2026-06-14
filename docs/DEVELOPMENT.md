@@ -59,8 +59,17 @@ docs/addresses.md      verified address fact sheet (P+ 3.1.5)
    (a pristine backup is at `sd.raw.bak`).
 5. Launch the "Project+ Offline Launcher" entry in P+ Dolphin.
 
-Netplay is intentionally **not** modified (`NETPLAY.TXT` untouched): pools are
-local RAM, so online use would desync rolls.
+Netplay is supported (since v1.2.0): the installer applies the same two TXT
+edits to `NETPLAY.TXT` and rebuilds `NETPLAY.GCT`. Project+ netplay is
+lockstep-deterministic — all four ports' inputs are synced and both clients
+run identical emulation — so the lists (in emulated MEM1), the rolls (the
+game's own `randi`), and all per-port state stay bit-identical end to end.
+The only inputs the hooks read are the synced pad state and emulated RAM;
+there are no host/timing reads. Tested over netplay. A codeset mismatch
+between players desyncs regardless of this mod, so both must install it.
+(An earlier note here claimed pools were "local RAM" that would desync — that
+was console-brain reasoning; under lockstep netplay emulated RAM is shared by
+construction.)
 
 ## Wii console install (verified working)
 
