@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.2.1
+
+- **Fix:** list editing now only responds to L while you're **holding your
+  token**. Once the token is placed on a character the cursor still reports
+  that character's slot, but L/R are the game's shield-colour controls — so
+  changing your shield colour was toggling the character in/out of the pool.
+  The toggle (and the '?' clear gesture) now require the token in hand, which
+  is the intended way to build a list anyway. (Thanks to the user who reported
+  it.)
+
 ## v1.2.0
 
 - **Netplay support.** The installer now patches the netplay codeset

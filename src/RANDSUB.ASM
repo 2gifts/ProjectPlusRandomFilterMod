@@ -152,15 +152,24 @@ TogInited:
     andi. r0, r12, ToggleButton
     beq+ TogOut
 
+    # Only act while the player is HOLDING their token. Once it is placed on
+    # a character the cursor still reports that character's slot, but L/R are
+    # now the game's shield-colour controls -- without this gate, changing
+    # your shield colour would toggle the character in/out of the pool (bug
+    # reported on the main CSS). The held-token pointer (hand+0xA0) is the
+    # tell: non-null = in hand, null = placed. This also makes the '?' clear
+    # gesture inherently coin-in-hand, as intended.
+    lwz r9, 0x1A8(r26)           # this port's hand/cursor object
+    cmpwi r9, 0                  # null on an inactive port -- guard the deref
+    beq- TogOut
+    lwz r9, 0xA0(r9)             # held-token pointer
+    cmpwi r9, 0
+    beq- TogOut                  # token placed: leave L/R for shield colour
+
     lwz r5, 0x1B8(r26)           # hovered slot: the '?' tile reads 0x29
     cmpwi r5, 0x29               #   (0x28 is the empty-space default)
-    bne- TogFindChar
-    lwz r9, 0x1A8(r26)           # coin in hand (not yet placed)?
-    lwz r9, 0xA0(r9)
-    cmpwi r9, 0
-    beq- TogOut                  # already placed on random: ignore L
-    b TogReset                   # hovering '?' with the coin: clear the list
-TogFindChar:
+    beq- TogReset                # hovering '?' with the token: clear the list
+    # otherwise: toggle the hovered character
 
     # slot id -> random-table index
     %lwi(r6, RandTable)
