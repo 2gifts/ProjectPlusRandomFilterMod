@@ -152,3 +152,10 @@ tooling used to develop and verify the mod against a live Dolphin instance
 MIT — see [LICENSE](LICENSE). Project+ and Super Smash Bros. Brawl are the
 property of their respective owners; this repository contains only original
 code and documentation.
+
+---
+
+<sub>**Also known as / keywords:** Project+ random character mod · per‑port random
+character select · P+ / Project M / Brawl custom random · random filter / random
+subset · random‑character generator and picker · per‑port random pool · CSS random
+mod · Gecko code (GCTRealMate) · Dolphin & Wii netplay.</sub>
